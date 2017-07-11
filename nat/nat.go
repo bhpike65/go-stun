@@ -2,8 +2,8 @@ package nat
 
 import (
 	"net"
-	"go-stun/stun"
-	"github.com/pkg/errors"
+	"github.com/bhpike65/go-stun/stun"
+	"errors"
 	"fmt"
 )
 const (

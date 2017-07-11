@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"go-stun/nat"
+	"github.com/bhpike65/go-stun/nat"
 	"net"
 )
 
