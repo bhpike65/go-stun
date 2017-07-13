@@ -1,81 +1,80 @@
 package nat
 
 import (
-	"net"
-	"github.com/bhpike65/go-stun/stun"
 	"errors"
 	"fmt"
+	"github.com/bhpike65/go-stun/stun"
+	"net"
 )
+
 const (
 	NAT_TEST_FAILED = -1
-	NAT_TYPE_NONAT = iota
-	NAT_TYPE_EIM			//Endpoint-Independent Mapping NAT
-	NAT_TYPE_ADM			//Address-Dependent Mapping NAT
-	NAT_TYPE_APDM			//Address and Port-Dependent Mapping NAT
-	NAT_TYPE_EIF			//Endpoint-Independent Filtering NAT
-	NAT_TYPE_ADF			//Address-Dependent Filtering NAT
-	NAT_TYPE_APDF			//Address and Port-Dependent Filtering NAT
+	NAT_TYPE_NONAT  = iota
+	NAT_TYPE_EIM    //Endpoint-Independent Mapping NAT
+	NAT_TYPE_ADM    //Address-Dependent Mapping NAT
+	NAT_TYPE_APDM   //Address and Port-Dependent Mapping NAT
+	NAT_TYPE_EIF    //Endpoint-Independent Filtering NAT
+	NAT_TYPE_ADF    //Address-Dependent Filtering NAT
+	NAT_TYPE_APDF   //Address and Port-Dependent Filtering NAT
 )
 
 type NATBehaviorDiscovery struct {
-	Conn *net.UDPConn
-	Local *net.UDPAddr
-	Server *net.UDPAddr
-	AltServer *net.UDPAddr
-	LocalAddr   string
-	MappingAddr string
-	MappingType	  int
+	Local         *net.UDPAddr
+	Server        *net.UDPAddr
+	AltServer     *net.UDPAddr
+	LocalAddr     string
+	MappingAddr   string
+	MappingType   int
 	FilteringType int
+	Hairpinning	  bool
 }
 
-func NewNATDiscovery(localAddr, serverAddr, altServerAddr string) (*NATBehaviorDiscovery, error) {
-	ret := new(NATBehaviorDiscovery)
+
+func Discovery(local, server, altServer string) (*NATBehaviorDiscovery, error) {
+	var res NATBehaviorDiscovery
 	var err error
-	ret.Server, err = net.ResolveUDPAddr("udp", serverAddr)
+	res.Server, err = net.ResolveUDPAddr("udp", server)
 	if err != nil {
 		return nil, err
 	}
-	ret.Local, err = net.ResolveUDPAddr("udp", localAddr)
+	res.Local, err = net.ResolveUDPAddr("udp", local)
 	if err != nil {
 		return nil, err
 	}
-	ret.Conn, err = net.ListenUDP("udp", ret.Local)
-	if err != nil {
-		return nil, err
-	}
-	ret.LocalAddr = ret.Conn.LocalAddr().String()
-	if altServerAddr != "" {
-		ret.AltServer, err = net.ResolveUDPAddr("udp", altServerAddr)
+	if altServer != "" {
+		res.AltServer, err = net.ResolveUDPAddr("udp", altServer)
 		if err != nil {
 			return nil, err
 		}
 	}
-	ret.MappingType = NAT_TEST_FAILED
-	ret.FilteringType = NAT_TEST_FAILED
-	return ret, nil
-}
 
-func (d *NATBehaviorDiscovery) Discovery() error {
+	conn, err := net.ListenUDP("udp", res.Local)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	res.LocalAddr = conn.LocalAddr().String()
+
 	// testI: NO-NAT?
 	req := stun.NewBindRequest(nil)
-	resp, localAddr, err := req.RequestTo(d.Conn, d.Server)
+	resp, localAddr, err := req.RequestTo(conn, res.Server)
 	if err != nil {
-		return errors.New(fmt.Sprintf("Failed to build STUN PP request: %s", err.Error()))
+		return &res, errors.New(fmt.Sprintf("Failed to build STUN PP request: %s", err.Error()))
 	}
 
-	if localAddr.String() == resp.Addr.String() {
-		d.MappingType = NAT_TYPE_NONAT
-		return nil
-	}
-	primaryPort := d.Server.Port
 	mappingPP := resp.Addr.String()
-	d.MappingAddr = mappingPP
+	res.MappingAddr = mappingPP
 
+	if localAddr.String() == mappingPP {
+		res.MappingType = NAT_TYPE_NONAT
+		return &res, nil
+	}
+	primaryPort := res.Server.Port
 	alternative := resp.OtherAddr
 	other := resp.OtherAddr
 
-	if other == nil && d.AltServer != nil {
-		other = d.AltServer
+	if other == nil && res.AltServer != nil {
+		other = res.AltServer
 	}
 	if other != nil {
 		altIp := other.IP
@@ -84,66 +83,73 @@ func (d *NATBehaviorDiscovery) Discovery() error {
 		req = stun.NewBindRequest(nil)
 		remoteAP, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", altIp.String(), primaryPort))
 		if err != nil {
-			return errors.New(fmt.Sprintf("resolve AP address failed:%s", err.Error()))
+			return &res, errors.New(fmt.Sprintf("resolve AP address failed:%s", err.Error()))
 		}
-		resp, localAddr, err = req.RequestTo(d.Conn, remoteAP)
+		resp, localAddr, err = req.RequestTo(conn, remoteAP)
 		if err != nil {
-			return errors.New(fmt.Sprintf("Failed to build STUN AP request:%s", err.Error()))
+			return &res, errors.New(fmt.Sprintf("Failed to build STUN AP request:%s", err.Error()))
 		}
 		mappingAP := resp.Addr.String()
 		if mappingPP == mappingAP {
-			d.MappingType = NAT_TYPE_EIM
-		} else{
+			res.MappingType = NAT_TYPE_EIM
+		} else {
 			//testIII, send to alternativeIp:alternativePort
 			req = stun.NewBindRequest(nil)
 			remoteAA, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", altIp.String(), altPort))
 			if err != nil {
-				return errors.New(fmt.Sprintf("resolve AA address failed:%s", err.Error()))
+				return &res, errors.New(fmt.Sprintf("resolve AA address failed:%s", err.Error()))
 			}
-			resp, localAddr, err = req.RequestTo(d.Conn, remoteAA)
+			resp, localAddr, err = req.RequestTo(conn, remoteAA)
 			if err != nil {
-				return errors.New(fmt.Sprintf("Failed to build STUN AA request:%s", err.Error()))
+				return &res, errors.New(fmt.Sprintf("Failed to build STUN AA request:%s", err.Error()))
 			}
 			mappingAA := resp.Addr.String()
 			if mappingAP == mappingAA {
-				d.MappingType = NAT_TYPE_ADM
+				res.MappingType = NAT_TYPE_ADM
 			} else {
-				d.MappingType = NAT_TYPE_APDM
+				res.MappingType = NAT_TYPE_APDM
 			}
 		}
 	} else {
-		d.MappingType = NAT_TEST_FAILED
+		res.MappingType = NAT_TEST_FAILED
 	}
 
-	if alternative == nil {
-		d.FilteringType = NAT_TEST_FAILED
-		return nil
-	}
-	//start NAT filter behavior test
-	//test II
-	req = stun.NewBindRequest(nil)
-	req.SetChangeIP(true)
-	req.SetChangePort(true)
-	_, _, err = req.RequestTo(d.Conn, d.Server)
-	if err == nil {
-		d.FilteringType = NAT_TYPE_EIF
-	} else {
-		//test III
+	if alternative != nil {
+		//start NAT filter behavior test
+		//test II
 		req = stun.NewBindRequest(nil)
-		req.SetChangeIP(false)
+		req.SetChangeIP(true)
 		req.SetChangePort(true)
-		req.ValidateSource(fmt.Sprintf("%s:%d", d.Server.IP.String(), alternative.Port))
-		resp, _, err = req.RequestTo(d.Conn, d.Server)
+		_, _, err = req.RequestTo(conn, res.Server)
 		if err == nil {
-			d.FilteringType = NAT_TYPE_ADF
-		} else if resp != nil {
-			d.FilteringType = NAT_TEST_FAILED
+			res.FilteringType = NAT_TYPE_EIF
 		} else {
-			d.FilteringType = NAT_TYPE_APDF
+			//test III
+			req = stun.NewBindRequest(nil)
+			req.SetChangeIP(false)
+			req.SetChangePort(true)
+			req.ValidateSource(fmt.Sprintf("%s:%d", res.Server.IP.String(), alternative.Port))
+			resp, _, err = req.RequestTo(conn, res.Server)
+			if err == nil {
+				res.FilteringType = NAT_TYPE_ADF
+			} else if resp != nil {
+				res.FilteringType = NAT_TEST_FAILED
+			} else {
+				res.FilteringType = NAT_TYPE_APDF
+			}
 		}
+	} else {
+		res.FilteringType = NAT_TEST_FAILED
 	}
-	d.Conn.Close()
-	return nil
+
+	//hairpinning support test
+	req = stun.NewBindRequest(nil)
+	resp, _, err = req.Request(res.Local.IP.String(), mappingPP)
+	if err != nil {
+		res.Hairpinning = true
+	}
+
+	return &res, nil
 }
 
 func (d *NATBehaviorDiscovery) String() string {
@@ -173,5 +179,12 @@ func (d *NATBehaviorDiscovery) String() string {
 			ret += "NAT filtering type: test failed\n"
 		}
 	}
+
+	if d.Hairpinning {
+		ret += "NAT Hairpinning Support: YES\n"
+	} else {
+		ret += "NAT Hairpinning Support:: NO\n"
+	}
+
 	return ret
 }

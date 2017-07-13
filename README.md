@@ -24,6 +24,7 @@ Go implementation of STUN
             fmt.Println("Failed to build STUN PP request:", err)
             os.Exit(1)
         }
+        fmt.Println("mapping address: ", resp.Addr.String())
    }
 ```
 
@@ -69,13 +70,13 @@ import (
 )
 
 func main() {
-	test, _ := nat.NewNATDiscovery("192.168.1.1:0"", "stun.l.google.com:19302", "")
-	if err := test.Discovery(); err != nil {
+	res, err := nat.Discovery("192.168.1.1:0", "stun.l.google.com:19302", "")
+	if err != nil {
 		fmt.Println("nat discovery error: ", err.Error())
 		os.Exit(-1)
 	}
 
-	fmt.Printf("nat discovery result:\n%s", test)
+	fmt.Printf("nat discovery result:\n%s", res)
 	return
 }
 ```
@@ -85,6 +86,7 @@ it will output:
 localAddress:192.168.1.3:56010, mappingAddress:1.1.1.1:15168
 NAT mapping type: Endpoint-Independent Mapping NAT
 NAT filtering type: Endpoint-Independent Filtering NAT
+NAT Hairpinning Support: YES
 ```
 
 # Example Usage
@@ -107,7 +109,7 @@ if you don't have two public IP address in one machine, instead, you can use two
 go run server.go -slave -slaveserver 1.1.1.1:12345 -primary-addr 2.2.2.2 -primary-port 3478 -alt-port 3479
 ```
 then it will start a tcp server listen on 1.1.1.1:12345, and waits request from master server.
-you should add iptables rules to filter the packet which isn't come from master server.
+you should add iptables rules to filter the packet which doesn't come from master server.
 
 
 2. start master server
@@ -126,6 +128,7 @@ and get the NAT behaviour test result:
 localAddress:192.168.1.3:49191, mappingAddress:3.3.3.3:37408
 Address and Port-Dependent Mapping NAT
 Endpoint-Independent Filtering NAT
+NAT Hairpinning Support: YES
 ```
 
 # Spec

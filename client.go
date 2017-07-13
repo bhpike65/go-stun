@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"github.com/bhpike65/go-stun/nat"
 	"net"
+	"os"
 )
 
 var server = flag.String("server", "stun.l.google.com:19302", "STUN server to query")
@@ -30,16 +30,12 @@ func main() {
 		}
 	}
 
-	test, err := nat.NewNATDiscovery(*local, *server, *altServer)
+	res, err := nat.Discovery(*local, *server, *altServer)
 	if err != nil {
-		fmt.Println("create nat test error: ", err.Error())
-		os.Exit(-1)
-	}
-	if err = test.Discovery(); err != nil {
 		fmt.Println("nat discovery error: ", err.Error())
 		os.Exit(-1)
 	}
 
-	fmt.Printf("nat discovery result:\n%s", test)
+	fmt.Printf("nat discovery result:\n%s", res)
 	return
 }

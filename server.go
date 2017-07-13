@@ -1,29 +1,29 @@
 package main
 
 import (
+	"bufio"
+	"encoding/hex"
 	"flag"
+	"fmt"
+	"github.com/bhpike65/go-stun/stun"
+	"io"
+	"log"
 	"net"
 	"os"
-	"bufio"
-	"fmt"
-	"go-stun/stun"
-	"log"
-	"io"
 	"strings"
-	"encoding/hex"
 )
 
 const (
-	typePP        = iota // primaryAddr:primaryPort
-	typePA               // primaryAddr:alterAddr
-	typeAP               // alterAddr:primaryPort
-	typeAA        		 // alterAddr:alterAddr
+	typePP = iota // primaryAddr:primaryPort
+	typePA        // primaryAddr:alterAddr
+	typeAP        // alterAddr:primaryPort
+	typeAA        // alterAddr:alterAddr
 	typeMax
 )
 
 var roleSet [typeMax]*net.UDPConn
 
-var logger              *log.Logger
+var logger *log.Logger
 
 // ./stunserver --primaryAddr 1.1.1.1 --alternativeAddr 2.2.2.2 --primaryPort 3478 --alternativePort 3479
 // ./stunserver --slaveserver 2.2.2.2:12345 --primaryAddr 1.1.1.1 --primaryPort 3478 --alternativePort 3479
@@ -40,7 +40,6 @@ var public = flag.Bool("public", true, "primaryAddr and alternativeAddr must be 
 
 var slaveChan chan *string
 
-
 var lanNets = []*net.IPNet{
 	{net.IPv4(10, 0, 0, 0), net.CIDRMask(8, 32)},
 	{net.IPv4(172, 16, 0, 0), net.CIDRMask(12, 32)},
@@ -51,12 +50,12 @@ var lanNets = []*net.IPNet{
 func main() {
 	flag.Parse()
 
-	logFile, err  := os.OpenFile("./slave.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	logFile, err := os.OpenFile("./slave.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		fmt.Println("failed to create slave.log: ", err.Error())
 		os.Exit(-1)
 	}
-	logger = log.New(logFile,"",log.Llongfile | log.LstdFlags)
+	logger = log.New(logFile, "", log.Llongfile|log.LstdFlags)
 
 	if *primaryAddr == "" || *alterAddr == "" {
 		addrs, err := net.InterfaceAddrs()
@@ -70,7 +69,7 @@ func main() {
 						if ipnet.IP.To4() != nil && !lan.Contains(ipnet.IP) {
 							if *primaryAddr == "" {
 								*primaryAddr = ipnet.IP.String()
-							} else if *alterAddr == "" && *primaryAddr !=  ipnet.IP.String() {
+							} else if *alterAddr == "" && *primaryAddr != ipnet.IP.String() {
 								*alterAddr = ipnet.IP.String()
 							} else {
 								break
@@ -92,11 +91,11 @@ func main() {
 		}
 	}
 
-	roleSet[typePP], err = net.ListenUDP("udp", &net.UDPAddr{IP:net.ParseIP(*primaryAddr), Port:*primaryPort})
+	roleSet[typePP], err = net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(*primaryAddr), Port: *primaryPort})
 	if err != nil {
 		logger.Fatal("listen on PP failed")
 	}
-	roleSet[typePA], err = net.ListenUDP("udp", &net.UDPAddr{IP:net.ParseIP(*primaryAddr), Port:*alterPort})
+	roleSet[typePA], err = net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(*primaryAddr), Port: *alterPort})
 	if err != nil {
 		logger.Fatal("listen on PA failed")
 	}
@@ -114,7 +113,7 @@ func main() {
 				}
 				slaveChan = make(chan *string, 128)
 				go slaveClientWorker(slaveAddr)
-				aaAddr = &net.UDPAddr{IP:slaveAddr.IP, Port:*alterPort}
+				aaAddr = &net.UDPAddr{IP: slaveAddr.IP, Port: *alterPort}
 			}
 		} else if *slaveServer != "" {
 			slaveAddr, err := net.ResolveTCPAddr("tcp", *slaveServer)
@@ -128,7 +127,7 @@ func main() {
 		if err != nil {
 			logger.Fatalf("alterAddr %s:%d resolve failed", *alterAddr, alterPort)
 		}
-		roleSet[typeAP], err = net.ListenUDP("udp", &net.UDPAddr{IP:net.ParseIP(*alterAddr), Port:*primaryPort})
+		roleSet[typeAP], err = net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(*alterAddr), Port: *primaryPort})
 		if err != nil {
 			logger.Fatal("listen on PP failed")
 		}
@@ -264,4 +263,3 @@ func slaveProcessRequest(conn net.Conn) {
 		req.RespondTo(roleSet[typePP], remote, nil)
 	}
 }
-
