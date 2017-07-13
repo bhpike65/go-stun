@@ -144,8 +144,8 @@ func Discovery(local, server, altServer string) (*NATBehaviorDiscovery, error) {
 
 	//hairpinning support test
 	req = stun.NewBindRequest(nil)
-	resp, _, err = req.Request(res.Local.IP.String(), mappingPP)
-	if err != nil {
+	_, _, err = req.Request(res.Local.IP.String()+":0", mappingPP)
+	if err == nil {
 		res.Hairpinning = true
 	}
 
